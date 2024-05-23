@@ -1,12 +1,13 @@
 import { JOBS_LIST } from "./constants";
 import * as readline from "readline";
+import axios from "axios";
 
 const START_POINT: IAddress = {
-    street: "6050 JFK Blvd E",
-    city: "Springfield",
-    state: "IL",
+    street: "19 Baltimore St",
+    city: "Staten Island",
+    state: "NY",
     country: "USA",
-    zip: "62701"
+    zip: "10308"
 };
 
 export interface IAddress {
@@ -23,21 +24,33 @@ export interface IJob {
     duration: number;
 }
 
-// Function to get a random integer between min and max (inclusive)
-function randomNumber(address_one: IAddress, address_two: IAddress): number {
-    return getRandomInt(1, 50);
+// Function to get the distance between two addresses using Google Maps Distance Matrix API
+async function getDistance(address_one: IAddress, address_two: IAddress): Promise<number> {
+    const apiKey = 'AIzaSyBk3lI51HqGuR7R1bCEmN982qVM8tcfDwk'; // Replace with your actual Google Maps API key
+    const origins = `${address_one.street}, ${address_one.city}, ${address_one.state}, ${address_one.zip}`;
+    const destinations = `${address_two.street}, ${address_two.city}, ${address_two.state}, ${address_two.zip}`;
+
+    try {
+        const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
+            params: {
+                origins: origins,
+                destinations: destinations,
+                key: apiKey
+            }
+        });
+
+        const distance = response.data.rows[0].elements[0].distance.value; // distance in meters
+        return distance / 1609.34; // convert meters to miles
+    } catch (error) {
+        console.error('Error fetching distance from Google Maps API', error);
+        return Number.MAX_SAFE_INTEGER; // Return a large number to indicate failure
+    }
 }
 
-function getRandomInt(min: number, max: number): number {
-    min = Math.ceil(min);
-    max = Math.floor(max);
-    return Math.floor(Math.random() * (max - min + 1)) + min; 
-}
-
-function scheduleJobs(jobs_list: IJob[], start_point: IAddress, jobs_per_day: number, days: string[]) {
-    let current_job: IJob = jobs_list[0];
-    let nearest_jobs: IJob[] = jobs_list.slice(1);
-    const completed_jobs: IJob[] = [current_job];
+async function scheduleJobs(jobs_list: IJob[], start_point: IAddress, jobs_per_day: number, days: string[]) {
+    let current_job: IJob = { address: start_point, name: "Start Point", duration: 0 };
+    let nearest_jobs: IJob[] = jobs_list;
+    const completed_jobs: IJob[] = [];
     const schedule: { week: number, day: string, jobs: IJob[] }[] = [];
     let week_count = 1;
     let day_index = 0;
@@ -46,16 +59,18 @@ function scheduleJobs(jobs_list: IJob[], start_point: IAddress, jobs_per_day: nu
         let nearest_job_index = -1;
         let shortest_distance = Number.MAX_SAFE_INTEGER;
 
-        nearest_jobs.forEach((job, index) => {
-            const distance = randomNumber(current_job.address, job.address);
+        for (let index = 0; index < nearest_jobs.length; index++) {
+            const job = nearest_jobs[index];
+            const distance = await getDistance(current_job.address, job.address);
             if (distance < shortest_distance) {
                 shortest_distance = distance;
                 nearest_job_index = index;
             }
-        });
+        }
 
         if (nearest_job_index !== -1 && nearest_jobs[nearest_job_index]) {
             const nearest_job = nearest_jobs[nearest_job_index];
+            console.log(`The job "${nearest_job.name}" is ${shortest_distance.toFixed(2)} miles from "${current_job.name}".`);
             current_job = nearest_job;
             nearest_jobs.splice(nearest_job_index, 1);
             completed_jobs.push(nearest_job);
@@ -69,25 +84,34 @@ function scheduleJobs(jobs_list: IJob[], start_point: IAddress, jobs_per_day: nu
         day_index++;
     }
 
-    schedule.forEach(entry => {
+    for (const entry of schedule) {
         console.log(`Week ${entry.week}`);
         console.log(`${entry.day}  | Total Jobs ${entry.jobs.length}`);
         console.log("The jobs scheduled for today are:", entry.jobs.map(job => job.name).join(", ") + ".");
-        console.log(`The first job in route is ${entry.jobs[0].name}, the next job in route is ${entry.jobs.slice(1).map(job => job.name).join(", ")}`);
         
-        // Calculate total miles
+        // Calculate total miles and print distances between jobs
         let total_miles = 0;
-        if (entry.jobs.length > 1) {
+        if (entry.jobs.length > 0) {
+            // Distance from START_POINT to the first job
+            let distance = await getDistance(START_POINT, entry.jobs[0].address);
+            console.log(`The first job "${entry.jobs[0].name}" is ${distance.toFixed(2)} miles from the headquarters.`);
+            total_miles += distance;
+
+            // Distances between jobs
             for (let i = 0; i < entry.jobs.length - 1; i++) {
-                total_miles += randomNumber(entry.jobs[i].address, entry.jobs[i + 1].address);
+                distance = await getDistance(entry.jobs[i].address, entry.jobs[i + 1].address);
+                console.log(`The job "${entry.jobs[i + 1].name}" is ${distance.toFixed(2)} miles from "${entry.jobs[i].name}".`);
+                total_miles += distance;
             }
-        } else {
-            // If there's only one job, calculate the distance from the start point to the job
-            total_miles = randomNumber(START_POINT, entry.jobs[0].address);
+
+            // Distance from the last job back to START_POINT
+            distance = await getDistance(entry.jobs[entry.jobs.length - 1].address, START_POINT);
+            console.log(`The last job "${entry.jobs[entry.jobs.length - 1].name}" is ${distance.toFixed(2)} miles from the headquarters.`);
+            total_miles += distance;
         }
-        console.log(`The total miles is ${total_miles}`);
+        console.log(`The total miles for the day is ${total_miles.toFixed(2)} miles.`);
         console.log("________________________________________________________________");
-    });
+    }
 }
 
 function main() {
@@ -117,4 +141,3 @@ function main() {
 }
 
 main();
-
